@@ -1,0 +1,82 @@
+# ============================================================
+# CogniScan — Docker Compose Configuration
+# ============================================================
+# Services:
+#   nextjs   — Next.js frontend (port 3000)
+#   fastapi  — FastAPI ML backend (port 8000)
+#   postgres — PostgreSQL database (port 5432)
+#   redis    — Redis cache (port 6379)
+# ============================================================
+
+version: "3.9"
+
+services:
+  # --- Next.js Frontend ---
+  nextjs:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_API_URL=http://fastapi:8000
+    depends_on:
+      - fastapi
+    networks:
+      - cogniscan
+
+  # --- FastAPI Backend ---
+  fastapi:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - DATABASE_URL=postgresql://cogniscan:cogniscan@postgres:5432/cogniscan
+      - REDIS_URL=redis://redis:6379/0
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-mock}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-mock}
+      - TWILIO_FROM_NUMBER=${TWILIO_FROM_NUMBER:-+15555555555}
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY:-mock}
+      - FIREBASE_CREDENTIALS=${FIREBASE_CREDENTIALS:-}
+    depends_on:
+      - postgres
+      - redis
+    volumes:
+      - model-cache:/root/.cache  # Cache ML model downloads
+    networks:
+      - cogniscan
+
+  # --- PostgreSQL Database ---
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: cogniscan
+      POSTGRES_PASSWORD: cogniscan
+      POSTGRES_DB: cogniscan
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    networks:
+      - cogniscan
+
+  # --- Redis Cache ---
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+    networks:
+      - cogniscan
+
+volumes:
+  pgdata:
+  redisdata:
+  model-cache:
+
+networks:
+  cogniscan:
+    driver: bridge
