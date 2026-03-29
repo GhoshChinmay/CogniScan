@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { Mic, MicOff, Camera, Video, AlertTriangle, CheckCircle2, XCircle, TrendingDown, Brain, Activity, Eye, Hand } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import { cn, getErrorMessage } from "@/lib/utils";
 import type { AnalysisResult, ScanPayload } from "@/lib/types";
 
@@ -139,6 +140,15 @@ export function ScanEngine() {
   const [rtStart, setRtStart] = useState(0);
   const [rtResult, setRtResult] = useState<number | null>(null);
 
+  // --- Scanning Feedback State ---
+  const [scanProgress, setScanProgress] = useState(0);
+  const simulatedLandmarks = useMemo(() => 
+    Array.from({ length: 30 }).map((_, i) => ({
+      id: i,
+      x: 20 + Math.random() * 60,
+      y: 15 + Math.random() * 70,
+    })), []);
+
   const stopRecording = useCallback(() => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
       mediaRecorderRef.current.stop();
@@ -164,12 +174,43 @@ export function ScanEngine() {
     return () => clearInterval(interval);
   }, [isRecording, stopRecording]);
 
-  // --- Cleanup camera on unmount ---
+  // --- Fix camera visibility + cleanup ---
+  useEffect(() => {
+    if (stream && videoRef.current) {
+      videoRef.current.srcObject = stream;
+    }
+  }, [stream]);
+
   useEffect(() => {
     return () => {
       if (stream) stream.getTracks().forEach(track => track.stop());
     };
   }, [stream]);
+
+  // --- Auto Capture Logic ---
+  useEffect(() => {
+    let interval: NodeJS.Timeout;
+    if (stream && !capturedFrame && currentStep === 2) {
+      setScanProgress(0);
+      interval = setInterval(() => {
+        setScanProgress(prev => {
+          if (prev >= 100) {
+            handleCaptureFrame();
+            clearInterval(interval);
+            return 100;
+          }
+          return prev + 1.2; // 3-4 seconds
+        });
+      }, 50);
+    } else if (capturedFrame) {
+      setScanProgress(100);
+    }
+    return () => clearInterval(interval);
+  }, [stream, capturedFrame, currentStep]);
+
+  useEffect(() => {
+    if (capturedFrame) setVisionDone(true);
+  }, [capturedFrame]);
 
   // --- Tapping Timer ---
   useEffect(() => {
@@ -253,10 +294,8 @@ export function ScanEngine() {
         video: { width: 640, height: 480, facingMode: "user" },
       });
       setStream(mediaStream);
-      if (videoRef.current) videoRef.current.srcObject = mediaStream;
-      setVisionDone(true);
     } catch {
-      alert("Camera access is required for facial analysis.");
+      alert("Camera access is required for facial analysis. Please ensure your browser has permission.");
     }
   };
 
@@ -502,32 +541,109 @@ export function ScanEngine() {
         <div className="space-y-6 text-center animate-in fade-in">
           <p className="text-[#a8c4d8] mb-2">Enable your camera so we can analyze facial micro-expressions and gaze patterns.</p>
 
-          <div className="h-[400px] bg-[#0f1e2e] rounded-2xl flex items-center justify-center border-2 border-dashed border-[#5a7a99]/30 overflow-hidden relative">
+          <div className="h-[400px] bg-[#0b1520] rounded-2xl flex items-center justify-center border-2 border-[rgba(0,200,255,0.12)] overflow-hidden relative shadow-2xl">
             {stream ? (
               <>
-                <video ref={videoRef} autoPlay playsInline muted className="absolute inset-0 w-full h-full object-cover" />
-                {/* Capture overlay */}
-                <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-10 flex gap-3">
-                  <button onClick={handleCaptureFrame} disabled={isCapturing} className="px-4 py-2 bg-[#00c8ff] text-black font-bold rounded-lg flex items-center gap-2 shadow-lg disabled:opacity-50">
-                    <Camera className="w-4 h-4" /> {capturedFrame ? "Retake" : "Capture Frame"}
-                  </button>
+                <video 
+                  ref={videoRef} 
+                  autoPlay 
+                  playsInline 
+                  muted 
+                  className="absolute inset-0 w-full h-full object-cover grayscale-[0.3] contrast-125" 
+                />
+                
+                {/* Futurist Scanning Effects */}
+                <AnimatePresence>
+                  {!capturedFrame && (
+                    <motion.div 
+                      key="scanning-overlay"
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      exit={{ opacity: 0 }}
+                      className="absolute inset-0 pointer-events-none"
+                    >
+                      {/* Scanning Beam */}
+                      <motion.div 
+                        animate={{ top: ["5%", "95%", "5%"] }}
+                        transition={{ duration: 4, repeat: Infinity, ease: "linear" }}
+                        className="absolute left-0 right-0 h-1 bg-gradient-to-r from-transparent via-[#00c8ff] to-transparent z-20 shadow-[0_0_15px_rgba(0,200,255,0.8)]"
+                      />
+
+                      {/* Landmarks */}
+                      {simulatedLandmarks.map((point) => (
+                        <motion.div
+                          key={point.id}
+                          style={{ left: `${point.x}%`, top: `${point.y}%` }}
+                          animate={{ 
+                            opacity: [0.2, 0.8, 0.2],
+                            scale: [1, 1.2, 1]
+                          }}
+                          transition={{ 
+                            duration: 2 + Math.random() * 2, 
+                            repeat: Infinity,
+                            delay: Math.random() * 2
+                          }}
+                          className="absolute w-1 h-1 bg-[#00c8ff] rounded-full z-10"
+                        />
+                      ))}
+
+                      {/* HUD Text */}
+                      <div className="absolute top-4 left-4 font-mono text-[10px] text-[#00c8ff]/60 text-left space-y-1">
+                        <div>ANALYZING_FACIAL_TOPOLOGY...</div>
+                        <div>GAZE_STABILITY: CALIBRATING</div>
+                        <div>BIOMARKER_EXTRACTION: {Math.round(scanProgress)}%</div>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+
+                {/* Scan Progress Bar (HUD style) */}
+                <div className="absolute bottom-0 left-0 right-0 h-1 bg-[#0f1e2e] z-30">
+                   <motion.div 
+                     className="h-full bg-[#00c8ff] shadow-[0_0_20px_rgba(0,200,255,0.6)]"
+                     initial={{ width: "0%" }}
+                     animate={{ width: `${scanProgress}%` }}
+                   />
                 </div>
-                {capturedFrame && (
-                  <div className="absolute top-3 right-3 bg-[#00e5a0]/20 text-[#00e5a0] text-xs px-3 py-1 rounded-full flex items-center gap-1.5">
-                    <CheckCircle2 className="w-3 h-3" /> Frame captured
-                  </div>
-                )}
+
+                {/* Success Overlay */}
+                <AnimatePresence>
+                  {capturedFrame && (
+                    <motion.div 
+                      initial={{ opacity: 0, scale: 0.9 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      className="absolute inset-0 bg-[#00e5a0]/10 flex flex-col items-center justify-center backdrop-blur-[2px] z-40"
+                    >
+                      <div className="bg-[#0b1520]/90 border border-[#00e5a0]/30 p-4 rounded-2xl flex flex-col items-center gap-2 shadow-2xl">
+                         <div className="w-12 h-12 rounded-full bg-[#00e5a0]/20 flex items-center justify-center">
+                            <CheckCircle2 className="w-6 h-6 text-[#00e5a0]" />
+                         </div>
+                         <h4 className="font-bold text-[#00e5a0]">Facial Map Captured</h4>
+                         <button onClick={() => { setCapturedFrame(null); setVisionDone(false); }} className="text-xs text-[#a8c4d8] hover:text-white underline mt-1">Retake Analysis</button>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </>
             ) : (
-              <button onClick={handleStartCamera} className="px-6 py-3 bg-[#00c8ff]/10 text-[#00c8ff] border border-[#00c8ff]/30 rounded-lg flex items-center gap-2 hover:bg-[#00c8ff]/20 transition-all">
-                <Video className="w-5 h-5" /> Enable Camera
-              </button>
+              <div className="flex flex-col items-center gap-4">
+                <div className="w-16 h-16 rounded-full bg-[#00c8ff]/10 flex items-center justify-center">
+                  <Camera className="w-8 h-8 text-[#00c8ff]" />
+                </div>
+                <div className="space-y-1">
+                  <h4 className="font-bold">Camera Access Required</h4>
+                  <p className="text-xs text-[#5a7a99] max-w-[240px]">Facial micro-expression markers are critical for detecting early cognitive biomarkers.</p>
+                </div>
+                <button onClick={handleStartCamera} className="mt-2 px-8 py-3 bg-[#00c8ff] text-black font-bold rounded-xl flex items-center gap-2 hover:shadow-[0_0_20px_rgba(0,200,255,0.4)] transition-all">
+                  <Video className="w-5 h-5" /> Enable Vision Sensor
+                </button>
+              </div>
             )}
           </div>
 
           <div className="flex justify-between pt-4">
-            <button onClick={() => { handleStopCamera(); setCurrentStep(1); }} className="px-6 py-3 rounded-xl bg-[#0f1e2e] text-white border border-[rgba(0,200,255,0.1)]">← Back</button>
-            <button onClick={() => setCurrentStep(3)} disabled={!visionDone} className="px-6 py-3 rounded-xl bg-[#00c8ff] text-black font-bold disabled:opacity-50 transition-all hover:shadow-[0_0_16px_rgba(0,200,255,0.3)]">Next: Memory →</button>
+            <button onClick={() => { handleStopCamera(); setCurrentStep(1); }} className="px-6 py-3 rounded-xl bg-[#0f1e2e] text-white border border-[rgba(0,200,255,0.1)] hover:bg-[#0f1e2e]/80">← Back</button>
+            <button onClick={() => setCurrentStep(3)} disabled={!visionDone} className="px-8 py-3 rounded-xl bg-[#00c8ff] text-black font-bold disabled:opacity-30 disabled:cursor-not-allowed transition-all hover:shadow-[0_0_20px_rgba(0,200,255,0.3)]">Next: Memory Assessment →</button>
           </div>
         </div>
       )}
