@@ -124,7 +124,6 @@ export function ScanEngine() {
   const [stream, setStream] = useState<MediaStream | null>(null);
   const [visionDone, setVisionDone] = useState(false);
   const [capturedFrame, setCapturedFrame] = useState<Blob | null>(null);
-  const [isCapturing, setIsCapturing] = useState(false);
 
   // --- Memory State ---
   const [selectedDay, setSelectedDay] = useState("");
@@ -187,6 +186,43 @@ export function ScanEngine() {
     };
   }, [stream]);
 
+  // ============================================================
+  // Camera + Frame Capture
+  // ============================================================
+  const handleCaptureFrame = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current) return;
+    
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    if (ctx) {
+      ctx.drawImage(video, 0, 0);
+      canvas.toBlob((blob) => {
+        if (blob) setCapturedFrame(blob);
+      }, "image/jpeg", 0.85);
+    }
+  }, []);
+
+  const handleStartCamera = async () => {
+    try {
+      const mediaStream = await navigator.mediaDevices.getUserMedia({
+        video: { width: 640, height: 480, facingMode: "user" },
+      });
+      setStream(mediaStream);
+    } catch {
+      alert("Camera access is required for facial analysis. Please ensure your browser has permission.");
+    }
+  };
+
+  const handleStopCamera = () => {
+    if (stream) {
+      stream.getTracks().forEach(track => track.stop());
+      setStream(null);
+    }
+  };
+
   // --- Auto Capture Logic ---
   useEffect(() => {
     let interval: NodeJS.Timeout;
@@ -206,7 +242,7 @@ export function ScanEngine() {
       setScanProgress(100);
     }
     return () => clearInterval(interval);
-  }, [stream, capturedFrame, currentStep]);
+  }, [stream, capturedFrame, currentStep, handleCaptureFrame]);
 
   useEffect(() => {
     if (capturedFrame) setVisionDone(true);
@@ -285,44 +321,7 @@ export function ScanEngine() {
     }
   }, [isRecording, startRecording, stopRecording]);
 
-  // ============================================================
-  // Camera + Frame Capture
-  // ============================================================
-  const handleStartCamera = async () => {
-    try {
-      const mediaStream = await navigator.mediaDevices.getUserMedia({
-        video: { width: 640, height: 480, facingMode: "user" },
-      });
-      setStream(mediaStream);
-    } catch {
-      alert("Camera access is required for facial analysis. Please ensure your browser has permission.");
-    }
-  };
 
-  const handleCaptureFrame = useCallback(() => {
-    if (!videoRef.current || !canvasRef.current) return;
-    
-    setIsCapturing(true);
-    const canvas = canvasRef.current;
-    const video = videoRef.current;
-    canvas.width = video.videoWidth || 640;
-    canvas.height = video.videoHeight || 480;
-    const ctx = canvas.getContext("2d");
-    if (ctx) {
-      ctx.drawImage(video, 0, 0);
-      canvas.toBlob((blob) => {
-        if (blob) setCapturedFrame(blob);
-        setIsCapturing(false);
-      }, "image/jpeg", 0.85);
-    }
-  }, []);
-
-  const handleStopCamera = () => {
-    if (stream) {
-      stream.getTracks().forEach(track => track.stop());
-      setStream(null);
-    }
-  };
 
   // ============================================================
   // Submit Scan to API
